@@ -617,8 +617,8 @@ void UACEAudioCurveSourceComponent::EvaluateAndUpdateCurrentPlaybackTime()
 	else
 	{
 		// We are no longer in sync with the audio playback time, so we need to resync the current playback time with the best guess from AnimationPlaybackTimeEstimate.
-		UE_LOG(LogACERuntime, VeryVerbose, TEXT("Resyncing animation with audio playback time: %f -> %f"), CurrentPlaybackTime, AnimationPlaybackTimeEstimate);
-		CurrentPlaybackTime = AnimationPlaybackTimeEstimate;
+		//UE_LOG(LogACERuntime, VeryVerbose, TEXT("Resyncing animation with audio playback time: %f -> %f"), CurrentPlaybackTime, AnimationPlaybackTimeEstimate);
+		//CurrentPlaybackTime = AnimationPlaybackTimeEstimate;
 	}
 
 	UE_LOG(LogACERuntime, VeryVerbose, TEXT("UACEAudioCurveSourceComponent::EvaluateAndUpdateCurrentPlaybackTime LastUpdatedGlobalTime %d"), LastUpdatedGlobalTime);
