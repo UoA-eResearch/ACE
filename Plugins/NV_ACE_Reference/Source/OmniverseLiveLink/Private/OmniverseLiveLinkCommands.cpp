@@ -27,7 +27,7 @@
 
 void FOmniverseLiveLinkCommands::RegisterCommands()
 {
-    UI_COMMAND( PluginAction, "Omniverse LiveLink", "Execute Omniverse LiveLink action", EUserInterfaceActionType::Button, FInputGesture() );
+    //UI_COMMAND( PluginAction, "Omniverse LiveLink", "Execute Omniverse LiveLink action", EUserInterfaceActionType::Button, FInputGesture() );
 }
 
 #undef LOCTEXT_NAMESPACE
