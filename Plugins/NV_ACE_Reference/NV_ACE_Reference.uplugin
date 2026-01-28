@@ -1,0 +1,121 @@
+{
+	"FileVersion": 3,
+	"Version": 18,
+	"VersionName": "2.5.0-20250614-2282",
+	"FriendlyName": "NVIDIA ACE base plugin: Audio2Face-3D, Animation Data, Minitron SLM",
+	"Description": "Provides facial animations through NVIDIA Audio2Face-3D and Animation Data services. Provides Minitron SLM support through local execution.",
+	"Category": "NVIDIA",
+	"CreatedBy": "NVIDIA",
+	"CreatedByURL": "https://www.nvidia.com",
+	"DocsURL": "https://docs.nvidia.com/ace/ace-unreal-plugin/latest/",
+	"MarketplaceURL": "https://www.unrealengine.com/marketplace/en-US/product/ace-unreal-engine-plugin",
+	"SupportURL": "https://developer.nvidia.com/ace-for-games",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "A2FCommon",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		},
+		{
+			"Name": "A2FLocal",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
+			"Name": "A2FRemote",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		},
+		{
+			"Name": "ACECore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "ACEEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name": "ACEGraphNode",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name": "ACERuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name": "AnimStream",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		},
+		{
+			"Name": "GPTLocal",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		},
+		{
+			"Name": "LegacyA2FRemote",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
+			"Name": "OmniverseAudioMixer",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
+			"Name": "OmniverseLiveLink",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
+			"Name": "AIMWrapper",
+			"Type": "Runtime",
+			"LoadingPhase": "PreLoadingScreen",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "LiveLink",
+			"Enabled": true
+		}
+	]
+}
