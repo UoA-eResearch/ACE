@@ -15,6 +15,7 @@
 *.so
 *.dylib
 *.dll
+!Plugins/NV_ACE_Reference/Source/ThirdParty/Nvacl/Lib/Win64/*
 
 # Fortran module files
 *.mod
@@ -73,5 +74,5 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
-
-**/Nvigi/Models/
+# Models
+*.gguf

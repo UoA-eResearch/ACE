@@ -1,0 +1,5 @@
+{
+    "name" : "nemotron-4-minitron-1-4b-instruct",
+    "vram" : 4000,
+    "context_size" : 4096
+}
