@@ -1,0 +1,48 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "2.2.4",
+	"FriendlyName": "ZenBlink",
+	"Description": "A plugin that provides Dynamic procedural Blinking, Eye, Head and Face Animation for Metahumans",
+	"Category": "Animation",
+	"CreatedBy": "JOBUTSU LTD",
+	"CreatedByURL": "https://www.jobutsu.uk",
+	"DocsURL": "https://www.zenblink.com/",
+	"MarketplaceURL": "",
+	"SupportURL": "https://www.zenblink.com/",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "ZenBlink",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		},
+		{
+			"Name": "ZenBlinkEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "RigLogic",
+			"Enabled": true
+		}
+	]
+}
