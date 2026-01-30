@@ -79,3 +79,5 @@ DerivedDataCache/*
 
 # Nvacl Library - need this to build
 !Plugins/NV_ACE_Reference/Source/ThirdParty/Nvacl/Lib/Win64/*
+# And these binaries
+!Plugins/NV_ACE_Reference/ThirdParty/Nvigi/Binaries/Win64/*.dll
