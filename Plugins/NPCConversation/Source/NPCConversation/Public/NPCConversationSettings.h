@@ -18,15 +18,21 @@ enum class ENPCTTSProvider : uint8
 UENUM(BlueprintType)
 enum class ENPCSTTProvider : uint8
 {
-	/** OpenAI-compatible Whisper REST API. */
-	WhisperAPI UMETA(DisplayName = "Whisper API (OpenAI-compatible)"),
+	/**
+	 * OpenAI-compatible Whisper REST API (primary).
+	 * Falls back to system STT if the request fails or the base URL is empty.
+	 */
+	WhisperAPI UMETA(DisplayName = "Whisper API (with System fallback)"),
+	/** Platform speech recognition only — skips the Whisper API entirely.
+	 *  Windows: PowerShell + System.Speech.Recognition (built-in).
+	 *  macOS / Linux: not available; node will fail gracefully.
+	 */
+	SystemOnly  UMETA(DisplayName = "System STT only"),
 };
 
 /**
  * Project-wide settings for the NPC Conversation plugin.
  * Accessible via Project Settings → Plugins → NPC Conversation.
- *
- * API keys can also be overridden at runtime via the async Blueprint nodes.
  */
 UCLASS(Config = Engine, DefaultConfig, DisplayName = "NPC Conversation")
 class NPCCONVERSATION_API UNPCConversationSettings : public UDeveloperSettings

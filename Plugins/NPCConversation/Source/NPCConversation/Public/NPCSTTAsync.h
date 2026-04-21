@@ -8,14 +8,19 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FNPCSTTDelegate, FString, Transcrib
 
 /**
  * Async Blueprint node: records microphone audio for a configurable duration and then
- * transcribes it via a Whisper-compatible API endpoint.
+ * transcribes it, with an automatic fallback to system speech recognition.
  *
  * Steps performed internally:
  *   1. Open the default system microphone via UE AudioCapture.
  *   2. Record float PCM samples for `RecordingDurationSeconds`.
- *   3. Encode samples as a 16-bit mono WAV (resampled to 16 kHz if needed).
+ *   3. Encode samples as a 16-bit mono WAV at the device's native sample rate.
  *   4. POST the WAV to the configured Whisper API endpoint (multipart/form-data).
- *   5. Parse the JSON response and broadcast the transcribed text.
+ *      If the Whisper API is unavailable or fails, the node falls back to system STT.
+ *   5. Parse the response and broadcast the transcribed text.
+ *
+ * System STT fallback:
+ *   - Windows : PowerShell + System.Speech.Recognition (built-in, no install required).
+ *   - macOS / Linux : not available; node fires OnFailure with a log warning.
  *
  * Configure the Whisper endpoint, API key, and model in Project Settings → Plugins → NPC Conversation.
  */
@@ -55,6 +60,12 @@ public:
 private:
 	void SendToWhisper(const TArray<uint8>& WavData);
 	void OnWhisperResponse(class FHttpRequestPtr Request, class FHttpResponsePtr Response, bool bWasSuccessful);
+
+	/** Platform speech recognition fallback (Windows: PowerShell + System.Speech.Recognition). */
+	void RunSystemSTT();
+
+	/** WAV bytes stored before the Whisper request so RunSystemSTT can use them on failure. */
+	TArray<uint8> PendingWavData;
 
 	/** Convert float PCM samples ([-1,1]) to a 16-bit mono WAV byte array. */
 	static TArray<uint8> BuildWavFromFloatSamples(const TArray<float>& Samples, int32 SampleRate, int32 NumChannels);

@@ -97,8 +97,11 @@ void UNPCLLMAsync::Activate()
 	Request->SetURL(URL);
 	Request->SetVerb(TEXT("POST"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	Request->SetHeader(TEXT("Authorization"),
-		FString::Printf(TEXT("Bearer %s"), *Settings->LLMAPIKey));
+	if (!Settings->LLMAPIKey.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"),
+			FString::Printf(TEXT("Bearer %s"), *Settings->LLMAPIKey));
+	}
 	Request->SetContentAsString(BodyStr);
 	Request->SetTimeout(Settings->LLMTimeoutSeconds);
 
@@ -182,7 +185,12 @@ void UNPCLLMAsync::OnHttpResponse(FHttpRequestPtr /*Request*/, FHttpResponsePtr 
 		return;
 	}
 
-	UE_LOG(LogNPCConversation, Log, TEXT("LLM response: %s"), *Content);
+	const int32 MaxLoggedContentChars = 256;
+	const bool bWasTruncated = Content.Len() > MaxLoggedContentChars;
+	const FString LoggedContentPreview = bWasTruncated
+		? Content.Left(MaxLoggedContentChars) + TEXT("...")
+		: Content;
+	UE_LOG(LogNPCConversation, Verbose, TEXT("LLM response preview: %s"), *LoggedContentPreview);
 	OnSuccess.Broadcast(Content, true);
 	SetReadyToDestroy();
 }

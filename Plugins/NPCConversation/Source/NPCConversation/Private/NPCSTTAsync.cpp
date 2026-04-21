@@ -3,12 +3,15 @@
 #include "NPCSTTAsync.h"
 
 #include "Async/Async.h"
+#include "HAL/FileManager.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "AudioCapture.h"
 
 #include "NPCConversationModule.h"
@@ -113,13 +116,26 @@ void UNPCSTTAsync::Activate()
 
 		TArray<uint8> WavData = BuildWavFromFloatSamples(MonoSamples, NativeSampleRate, 1);
 
-		// HTTP transcription must run on the game thread's HTTP manager but the
-		// bind callback will come back on the game thread, so it's safe to call
-		// SendToWhisper from here.
-		AsyncTask(ENamedThreads::GameThread, [this, WavData = MoveTemp(WavData)]()
+		// Decide which provider to use (read settings here; game-thread access happens below).
+		const UNPCConversationSettings* Cfg = GetDefault<UNPCConversationSettings>();
+		const bool bUseWhisperAPI = Cfg
+			&& Cfg->STTProvider == ENPCSTTProvider::WhisperAPI
+			&& !Cfg->STTBaseURL.IsEmpty();
+
+		if (bUseWhisperAPI)
 		{
-			SendToWhisper(WavData);
-		});
+			// HTTP must be started on the game thread.
+			AsyncTask(ENamedThreads::GameThread, [this, WavData = MoveTemp(WavData)]()
+			{
+				SendToWhisper(WavData);
+			});
+		}
+		else
+		{
+			// System STT — stays on the background thread so ExecProcess doesn't block game thread.
+			PendingWavData = MoveTemp(WavData);
+			RunSystemSTT();
+		}
 	});
 }
 
@@ -127,6 +143,9 @@ void UNPCSTTAsync::Activate()
 
 void UNPCSTTAsync::SendToWhisper(const TArray<uint8>& WavData)
 {
+	// Store a copy so RunSystemSTT() can use it if the API call fails.
+	PendingWavData = WavData;
+
 	const UNPCConversationSettings* Settings = GetDefault<UNPCConversationSettings>();
 	if (!Settings)
 	{
@@ -201,8 +220,8 @@ void UNPCSTTAsync::OnWhisperResponse(FHttpRequestPtr /*Request*/, FHttpResponseP
 {
 	if (!bWasSuccessful || !Response.IsValid())
 	{
-		UE_LOG(LogNPCConversation, Error, TEXT("STT: HTTP request failed."));
-		BroadcastFailure();
+		UE_LOG(LogNPCConversation, Warning, TEXT("STT: Whisper HTTP request failed. Trying system STT."));
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this]() { RunSystemSTT(); });
 		return;
 	}
 
@@ -211,8 +230,8 @@ void UNPCSTTAsync::OnWhisperResponse(FHttpRequestPtr /*Request*/, FHttpResponseP
 
 	if (StatusCode < 200 || StatusCode >= 300)
 	{
-		UE_LOG(LogNPCConversation, Error, TEXT("STT: HTTP %d — %s"), StatusCode, *Body);
-		BroadcastFailure();
+		UE_LOG(LogNPCConversation, Warning, TEXT("STT: Whisper API returned HTTP %d. Trying system STT."), StatusCode);
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this]() { RunSystemSTT(); });
 		return;
 	}
 
@@ -221,22 +240,82 @@ void UNPCSTTAsync::OnWhisperResponse(FHttpRequestPtr /*Request*/, FHttpResponseP
 	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
 	if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
 	{
-		UE_LOG(LogNPCConversation, Error, TEXT("STT: Could not parse Whisper JSON response."));
-		BroadcastFailure();
+		UE_LOG(LogNPCConversation, Warning, TEXT("STT: Could not parse Whisper JSON response. Trying system STT."));
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this]() { RunSystemSTT(); });
 		return;
 	}
 
 	FString Text;
 	if (!JsonObj->TryGetStringField(TEXT("text"), Text))
 	{
-		UE_LOG(LogNPCConversation, Error, TEXT("STT: No 'text' field in response: %s"), *Body);
-		BroadcastFailure();
+		UE_LOG(LogNPCConversation, Warning, TEXT("STT: No 'text' field in Whisper response. Trying system STT."));
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this]() { RunSystemSTT(); });
 		return;
 	}
 
 	Text = Text.TrimStartAndEnd();
 	UE_LOG(LogNPCConversation, Log, TEXT("STT: Transcription: %s"), *Text);
 	BroadcastSuccess(Text);
+}
+
+// ─── System STT fallback ──────────────────────────────────────────────────────
+
+void UNPCSTTAsync::RunSystemSTT()
+{
+#if PLATFORM_WINDOWS
+	// Windows: use PowerShell + System.Speech.Recognition (built-in, no install needed).
+	const FString TempWavPath = FPaths::CreateTempFilename(
+		*FPlatformProcess::UserTempDir(), TEXT("npc_stt"), TEXT(".wav"));
+
+	if (!FFileHelper::SaveArrayToFile(PendingWavData, *TempWavPath))
+	{
+		UE_LOG(LogNPCConversation, Error, TEXT("STT: System STT: failed to write temp WAV."));
+		BroadcastFailure();
+		return;
+	}
+
+	// Paths use forward slashes inside PowerShell to avoid backslash escape issues.
+	const FString FwdWavPath = TempWavPath.Replace(TEXT("\\"), TEXT("/"));
+
+	// Build the PowerShell command as concatenated strings for readability.
+	// Paths use forward slashes; FPaths::CreateTempFilename generates GUID-based names
+	// without spaces or shell-special chars, so single-quoting them is safe in PowerShell.
+	const FString PSCmd = FString::Printf(
+		TEXT("Add-Type -AssemblyName System.Speech; ")
+		TEXT("$sre = New-Object System.Speech.Recognition.SpeechRecognitionEngine; ")
+		TEXT("$sre.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); ")
+		TEXT("$sre.SetInputToWaveFile('%s'); ")
+		TEXT("$r = $sre.Recognize(); ")
+		TEXT("$sre.Dispose(); ")
+		TEXT("if ($r) { Write-Output $r.Text }"),
+		*FwdWavPath);
+
+	const FString Args = FString::Printf(
+		TEXT("-NoProfile -NonInteractive -Command \"%s\""), *PSCmd);
+
+	int32 ReturnCode = -1;
+	FString StdOut, StdErr;
+	FPlatformProcess::ExecProcess(TEXT("powershell.exe"), *Args, &ReturnCode, &StdOut, &StdErr);
+	IFileManager::Get().Delete(*TempWavPath);
+
+	StdOut = StdOut.TrimStartAndEnd();
+	if (ReturnCode == 0 && !StdOut.IsEmpty())
+	{
+		UE_LOG(LogNPCConversation, Log, TEXT("STT: System STT transcription: %s"), *StdOut);
+		BroadcastSuccess(StdOut);
+		return;
+	}
+
+	UE_LOG(LogNPCConversation, Error,
+		TEXT("STT: System STT failed (rc=%d). stderr: %s"), ReturnCode, *StdErr);
+	BroadcastFailure();
+
+#else
+	UE_LOG(LogNPCConversation, Warning,
+		TEXT("STT: System STT fallback is not available on this platform. "
+			"Configure a Whisper API endpoint in Project Settings → Plugins → NPC Conversation."));
+	BroadcastFailure();
+#endif
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -94,11 +94,12 @@ void UNPCTTSAsync::TryElevenLabs()
 
 void UNPCTTSAsync::OnElevenLabsResponse(FHttpRequestPtr /*Request*/, FHttpResponsePtr Response, bool bWasSuccessful)
 {
-	if (!bWasSuccessful || !Response.IsValid() || Response->GetResponseCode() != 200)
+	const int32 ResponseCode = Response.IsValid() ? Response->GetResponseCode() : -1;
+	if (!bWasSuccessful || !Response.IsValid() || ResponseCode < 200 || ResponseCode >= 300)
 	{
 		UE_LOG(LogNPCConversation, Warning,
 			TEXT("TTS: ElevenLabs request failed (code=%d). Falling back to system TTS."),
-			Response.IsValid() ? Response->GetResponseCode() : -1);
+			ResponseCode);
 
 		// Fallback to system TTS on a background thread so we don't block the game thread.
 		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this]() { RunSystemTTS(); });
@@ -149,10 +150,13 @@ void UNPCTTSAsync::RunSystemTTS()
 		return;
 	}
 
+	int32 ReturnCode = -1;
+	FString StdOut, StdErr;
+
 #if PLATFORM_WINDOWS
-	// Use Windows Speech API via PowerShell (no external binary needed)
+	// Use Windows Speech API via PowerShell (no external binary needed).
+	// Paths use forward slashes inside PowerShell to avoid backslash escape issues.
 	const FString Exe = TEXT("powershell.exe");
-	// Paths use forward slashes inside PowerShell to avoid escape issues.
 	const FString FwdTextPath = TempTextPath.Replace(TEXT("\\"), TEXT("/"));
 	const FString FwdWavPath  = TempWavPath.Replace(TEXT("\\"), TEXT("/"));
 	const FString Args = FString::Printf(
@@ -164,20 +168,40 @@ void UNPCTTSAsync::RunSystemTTS()
 			"$s.Dispose()\""),
 		*FwdWavPath, *FwdTextPath);
 
+	UE_LOG(LogNPCConversation, Log, TEXT("TTS: Running system TTS: %s %s"), *Exe, *Args);
+	FPlatformProcess::ExecProcess(*Exe, *Args, &ReturnCode, &StdOut, &StdErr);
+
 #elif PLATFORM_MAC
-	// macOS built-in TTS — produces AIFF by default; redirect to WAV via afconvert
+	// macOS: invoke 'say' and 'afconvert' directly (no shell wrapper).
+	// ExecProcess uses fork/execvp, so shell quote syntax is not interpreted; paths are passed
+	// verbatim. FPaths::CreateTempFilename produces GUID-based names with no spaces or
+	// shell-special characters, so no quoting is needed.
 	const FString TempAiffPath = FPaths::CreateTempFilename(
 		*FPlatformProcess::UserTempDir(), TEXT("npc_tts"), TEXT(".aiff"));
-	const FString Exe = TEXT("/bin/sh");
-	const FString Args = FString::Printf(
-		TEXT("-c \"say -f '%s' -o '%s' && afconvert -f WAVE -d LEI16 '%s' '%s'\""),
-		*TempTextPath, *TempAiffPath, *TempAiffPath, *TempWavPath);
+
+	{
+		const FString SayArgs = FString::Printf(TEXT("-f %s -o %s"), *TempTextPath, *TempAiffPath);
+		UE_LOG(LogNPCConversation, Log, TEXT("TTS: Running: /usr/bin/say %s"), *SayArgs);
+		FPlatformProcess::ExecProcess(TEXT("/usr/bin/say"), *SayArgs, &ReturnCode, &StdOut, &StdErr);
+	}
+
+	if (ReturnCode == 0)
+	{
+		const FString ConvertArgs = FString::Printf(
+			TEXT("-f WAVE -d LEI16 %s %s"), *TempAiffPath, *TempWavPath);
+		UE_LOG(LogNPCConversation, Log, TEXT("TTS: Running: /usr/bin/afconvert %s"), *ConvertArgs);
+		StdErr.Empty();
+		FPlatformProcess::ExecProcess(TEXT("/usr/bin/afconvert"), *ConvertArgs, &ReturnCode, &StdOut, &StdErr);
+	}
+
+	IFileManager::Get().Delete(*TempAiffPath);
 
 #elif PLATFORM_LINUX
-	// espeak-ng is commonly available on Linux desktops
-	const FString Exe = TEXT("/bin/sh");
-	const FString Args = FString::Printf(
-		TEXT("-c \"espeak-ng -f '%s' -w '%s'\""), *TempTextPath, *TempWavPath);
+	// espeak-ng: invoke directly with -f (input file) and -w (WAV output) flags.
+	// No shell is involved; paths are passed verbatim to execvp.
+	const FString EspeakArgs = FString::Printf(TEXT("-f %s -w %s"), *TempTextPath, *TempWavPath);
+	UE_LOG(LogNPCConversation, Log, TEXT("TTS: Running: espeak-ng %s"), *EspeakArgs);
+	FPlatformProcess::ExecProcess(TEXT("espeak-ng"), *EspeakArgs, &ReturnCode, &StdOut, &StdErr);
 
 #else
 	UE_LOG(LogNPCConversation, Error, TEXT("TTS: System TTS is not supported on this platform."));
@@ -186,17 +210,7 @@ void UNPCTTSAsync::RunSystemTTS()
 	return;
 #endif
 
-	UE_LOG(LogNPCConversation, Log, TEXT("TTS: Running system TTS: %s %s"), *Exe, *Args);
-
-	int32 ReturnCode = -1;
-	FString StdOut, StdErr;
-	FPlatformProcess::ExecProcess(*Exe, *Args, &ReturnCode, &StdOut, &StdErr);
-
 	IFileManager::Get().Delete(*TempTextPath);
-
-#if PLATFORM_MAC
-	IFileManager::Get().Delete(*TempAiffPath);
-#endif
 
 	if (ReturnCode == 0 && IFileManager::Get().FileSize(*TempWavPath) > 0)
 	{
