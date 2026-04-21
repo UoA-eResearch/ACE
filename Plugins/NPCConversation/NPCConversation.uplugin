@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "NPC Conversation (TTS / STT / LLM)",
+	"Description": "Provides Speech-to-Text (Whisper API), LLM inference (OpenAI-compatible, Cerebras), and Text-to-Speech (ElevenLabs + system fallback) for interactive MetaHuman NPC conversations.",
+	"Category": "AI",
+	"CreatedBy": "UoA eResearch",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "NPCConversation",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
