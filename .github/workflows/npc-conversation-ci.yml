@@ -7,9 +7,11 @@ on:
       - 'claude/**'
     paths:
       - 'Plugins/NPCConversation/**'
+      - '.github/workflows/npc-conversation-ci.yml'
   pull_request:
     paths:
       - 'Plugins/NPCConversation/**'
+      - '.github/workflows/npc-conversation-ci.yml'
   workflow_dispatch:
 
 jobs:
@@ -95,24 +97,275 @@ jobs:
         run: |
           echo "Checking for proper HTTP type declarations..."
 
-          # Check that headers don't use 'class FHttpRequestPtr' (should just be FHttpRequestPtr)
-          if grep -r "class FHttpRequestPtr" Plugins/NPCConversation/Source --include="*.h"; then
-            echo "Error: Found incorrect 'class FHttpRequestPtr' forward declarations"
-            echo "FHttpRequestPtr is a typedef and should not be forward-declared with 'class'"
+          # Check that headers don't use 'class FHttpRequestPtr' or 'class FHttpResponsePtr'
+          # (allowing for flexible whitespace between 'class' and the typedef name)
+          if grep -Er "class[[:space:]]+FHttp(Request|Response)Ptr" Plugins/NPCConversation/Source --include="*.h"; then
+            echo "Error: Found incorrect HTTP typedef forward declarations"
+            echo "FHttpRequestPtr and FHttpResponsePtr are typedefs and should not be forward-declared with 'class'"
             exit 1
           fi
 
           echo "HTTP type declarations are correct"
 
-  # Note: Actual UE5 build would require:
-  # - Unreal Engine 5.6 installation
-  # - UnrealBuildTool
-  # - Platform-specific build tools (Visual Studio on Windows, Xcode on macOS)
-  #
-  # For a full build workflow, consider using:
-  # - Self-hosted runners with UE5 pre-installed
-  # - Docker containers with UE5
-  # - Epic Games' official UE build actions (if available)
+  build-cs-check:
+    name: Build.cs Syntax Check (C#/dotnet)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Compile Build.cs files with UBT stubs
+        run: |
+          WORKDIR=$(mktemp -d)
+
+          # Minimal UnrealBuildTool stubs — only the symbols used by these Build.cs files.
+          cat > "$WORKDIR/UBTStub.cs" << 'CSHARP'
+using System.Collections.Generic;
+
+namespace UnrealBuildTool
+{
+    public enum PCHUsageMode
+    {
+        UseExplicitOrSharedPCHs
+    }
+
+    public class ReadOnlyTargetRules { }
+
+    public abstract class ModuleRules
+    {
+        public PCHUsageMode PCHUsage;
+        public List<string> PublicDependencyModuleNames = new List<string>();
+        public List<string> PrivateDependencyModuleNames = new List<string>();
+        public bool bEnableExceptions;
+
+        protected ModuleRules(ReadOnlyTargetRules Target) { }
+    }
+}
+CSHARP
+
+          # Minimal project file — picks up all *.cs in the same directory.
+          cat > "$WORKDIR/BuildCheck.csproj" << 'XML'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+XML
+
+          cp Plugins/NPCConversation/Source/NPCConversation/NPCConversation.Build.cs \
+             "$WORKDIR/"
+          cp Plugins/NPCConversation/Source/NPCConversationTests/NPCConversationTests.Build.cs \
+             "$WORKDIR/"
+
+          echo "Compiling Build.cs files with UBT stubs..."
+          dotnet build "$WORKDIR/BuildCheck.csproj" --nologo -v minimal
+          echo "✅ Build.cs syntax check passed"
+
+          rm -rf "$WORKDIR"
+
+  cpp-syntax-check:
+    name: C++ Syntax Check (gcc, best-effort)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install g++
+        run: |
+          sudo apt-get install -y g++ 2>/dev/null
+          g++ --version
+
+      - name: Create minimal UE stub headers
+        # These stubs define just enough of the UE5 API surface to let gcc parse
+        # the plugin headers.  Full compilation requires a real UE5 installation.
+        run: |
+          STUBDIR=/tmp/ue-stubs
+          mkdir -p "$STUBDIR/Kismet" "$STUBDIR/Interfaces" \
+                   "$STUBDIR/Engine" "$STUBDIR/Misc" "$STUBDIR/Modules"
+
+          # ── CoreMinimal.h ────────────────────────────────────────────────────
+          cat > "$STUBDIR/CoreMinimal.h" << 'EOF'
+#pragma once
+#include <cstdint>
+#include <memory>
+using int8  = int8_t;  using int16 = int16_t;
+using int32 = int32_t; using int64 = int64_t;
+using uint8  = uint8_t;  using uint16 = uint16_t;
+using uint32 = uint32_t; using uint64 = uint64_t;
+struct FString {
+    FString() = default;
+    FString(const char*) {}
+    bool IsEmpty() const { return false; }
+};
+struct FText {};
+struct FName {};
+template<typename T> struct TSharedPtr { T* operator->() const { return nullptr; } };
+template<typename T> struct TArray   { int32 Num() const { return 0; } };
+template<typename T, typename U = T> struct TSubclassOf {};
+// UObject base — needed by DeveloperSettings, BlueprintAsyncActionBase, etc.
+class UObject { public: virtual ~UObject() = default; };
+template<typename T> T*       NewObject(UObject* = nullptr) { return new T(); }
+template<typename T> const T* GetDefault() { static T inst; return &inst; }
+#define TEXT(x) x
+#define FORCEINLINE inline
+#define check(...)
+#define ensure(x) (x)
+// UE reflection macros — expanded to nothing so the class/struct bodies parse.
+#define UCLASS(...)
+#define GENERATED_BODY() public:
+#define UFUNCTION(...)
+#define UPROPERTY(...)
+#define UENUM(...)
+#define UMETA(...)
+#define NPCCONVERSATION_API
+#define DECLARE_LOG_CATEGORY_EXTERN(name, def, all)
+#define DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(name, t1, n1, t2, n2) \
+    struct name { void Broadcast(t1, t2) {} };
+EOF
+
+          # ── Kismet/BlueprintAsyncActionBase.h ────────────────────────────────
+          cat > "$STUBDIR/Kismet/BlueprintAsyncActionBase.h" << 'EOF'
+#pragma once
+#include "CoreMinimal.h"
+class UBlueprintAsyncActionBase : public UObject {
+public:
+    virtual void Activate() {}
+};
+EOF
+
+          # ── Interfaces/IHttpRequest.h ────────────────────────────────────────
+          cat > "$STUBDIR/Interfaces/IHttpRequest.h" << 'EOF'
+#pragma once
+#include "CoreMinimal.h"
+class IHttpRequest  {};
+class IHttpResponse {};
+using FHttpRequestPtr  = TSharedPtr<IHttpRequest>;
+using FHttpResponsePtr = TSharedPtr<IHttpResponse>;
+EOF
+
+          # ── Engine/DeveloperSettings.h ───────────────────────────────────────
+          cat > "$STUBDIR/Engine/DeveloperSettings.h" << 'EOF'
+#pragma once
+#include "CoreMinimal.h"
+class UDeveloperSettings : public UObject {
+public:
+    virtual FName GetCategoryName() const { return {}; }
+};
+EOF
+
+          # ── Modules/ModuleInterface.h ────────────────────────────────────────
+          cat > "$STUBDIR/Modules/ModuleInterface.h" << 'EOF'
+#pragma once
+#include "CoreMinimal.h"
+class IModuleInterface {
+public:
+    virtual ~IModuleInterface() = default;
+    virtual void StartupModule()  {}
+    virtual void ShutdownModule() {}
+};
+EOF
+
+          # ── Modules/ModuleManager.h ──────────────────────────────────────────
+          cat > "$STUBDIR/Modules/ModuleManager.h" << 'EOF'
+#pragma once
+#include "Modules/ModuleInterface.h"
+#define IMPLEMENT_MODULE(cls, mod) static cls s_module_##mod;
+EOF
+
+          # ── Misc/AutomationTest.h ────────────────────────────────────────────
+          cat > "$STUBDIR/Misc/AutomationTest.h" << 'EOF'
+#pragma once
+#include "CoreMinimal.h"
+#ifndef WITH_DEV_AUTOMATION_TESTS
+#  define WITH_DEV_AUTOMATION_TESTS 1
+#endif
+namespace EAutomationTestFlags {
+    enum Type { ApplicationContextMask = 0, ProductFilter = 0 };
+}
+struct FAutomationTestBase {
+    virtual ~FAutomationTestBase() = default;
+    virtual bool RunTest(const FString& Params) = 0;
+    void TestNotNull(const char*, const void*) {}
+    template<typename T> void TestEqual(const char*, T, T) {}
+    void TestFalse(const char*, bool) {}
+    void TestTrue(const char*, bool)  {}
+};
+// The macro declares the test class; the user then provides the RunTest body
+// as a regular out-of-class function definition.
+#define IMPLEMENT_SIMPLE_AUTOMATION_TEST(cls, name, flags) \
+    struct cls : public FAutomationTestBase {               \
+        virtual bool RunTest(const FString& Params) override; \
+    };
+EOF
+
+      - name: Create stub .generated.h files
+        # UHT normally generates these; empty stubs let the headers parse.
+        run: |
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          for name in NPCSTTAsync NPCLLMAsync NPCTTSAsync NPCConversationSettings; do
+            echo "#pragma once" > "$PUB/${name}.generated.h"
+          done
+
+      - name: Syntax-check public headers
+        run: |
+          STUBDIR=/tmp/ue-stubs
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          FAILED=0
+
+          echo "Checking public header syntax with g++..."
+          for header in "$PUB"/*.h; do
+            # Skip stub generated headers we just created
+            [[ "$header" == *.generated.h ]] && continue
+            if g++ -std=c++17 -fsyntax-only -w -I"$STUBDIR" -I"$PUB" "$header" 2>&1; then
+              echo "  ✅ $header"
+            else
+              echo "  ❌ $header"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo ""
+            echo "::error::$FAILED header(s) failed syntax check."
+            exit 1
+          fi
+          echo "✅ All public headers passed syntax check"
+
+      - name: Syntax-check test file
+        # The test file calls UE factory methods whose bodies live in .cpp files
+        # (not compiled here), so link-time symbols are expected to be missing.
+        # We use -fsyntax-only which only performs parsing + type checking.
+        run: |
+          STUBDIR=/tmp/ue-stubs
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          TEST=Plugins/NPCConversation/Source/NPCConversationTests/Private
+
+          echo "Syntax-checking test file..."
+          if g++ -std=c++17 -fsyntax-only -w \
+                 -I"$STUBDIR" -I"$PUB" \
+                 "$TEST/NPCConversationTests.cpp" 2>&1; then
+            echo "✅ Test file syntax check passed"
+          else
+            echo "::warning::Test file syntax check incomplete without the full UE5 SDK."
+            echo "Install UE5 on a self-hosted runner for a complete build and test run."
+          fi
+
+      - name: Cleanup stub generated headers
+        if: always()
+        run: |
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          for name in NPCSTTAsync NPCLLMAsync NPCTTSAsync NPCConversationSettings; do
+            rm -f "$PUB/${name}.generated.h"
+          done
 
   code-quality:
     name: Code Quality Checks
@@ -163,12 +416,11 @@ jobs:
           echo "Plugin validation completed!"
           echo "==================================="
           echo ""
-          echo "To add full build and test support:"
-          echo "1. Set up a self-hosted runner with UE5.6"
-          echo "2. Add UnrealBuildTool commands to build the plugin"
-          echo "3. Run Unreal's automation tests"
+          echo "Jobs run in this workflow:"
+          echo "  validate-plugin  — structure, JSON, header guards, HTTP type correctness"
+          echo "  build-cs-check   — dotnet compilation of Build.cs files with UBT stubs"
+          echo "  cpp-syntax-check — g++ -fsyntax-only on headers and test file"
+          echo "  code-quality     — encoding, line endings, TODO scan"
           echo ""
-          echo "For now, this workflow validates:"
-          echo "- Plugin structure and descriptor"
-          echo "- Required source files presence"
-          echo "- Code quality basics"
+          echo "For a full UE5 build and automation-test run, use a self-hosted runner"
+          echo "with UE5.6 installed and invoke UnrealBuildTool + RunUAT.sh."

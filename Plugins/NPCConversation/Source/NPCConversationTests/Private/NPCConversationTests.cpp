@@ -1,10 +1,22 @@
 // Copyright UoA eResearch. MIT License.
 
 #include "Misc/AutomationTest.h"
+#include "Modules/ModuleManager.h"
 #include "NPCSTTAsync.h"
 #include "NPCLLMAsync.h"
 #include "NPCTTSAsync.h"
 #include "NPCConversationSettings.h"
+
+// Module entry point must be outside any conditional compilation block so the
+// module links correctly even in non-test configurations.
+class FNPCConversationTestsModule : public IModuleInterface
+{
+public:
+	virtual void StartupModule() override {}
+	virtual void ShutdownModule() override {}
+};
+
+IMPLEMENT_MODULE(FNPCConversationTestsModule, NPCConversationTests)
 
 #if WITH_DEV_AUTOMATION_TESTS
 

@@ -17,7 +17,7 @@
 		},
 		{
 			"Name": "NPCConversationTests",
-			"Type": "EditorNoCommandlet",
+			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}
 	]
