@@ -68,9 +68,6 @@ private:
 	void RunSystemTTS();
 
 	// Helpers
-	/** Wrap raw PCM (int16, little-endian) data in a RIFF/WAV container. */
-	static TArray<uint8> BuildWavFromPCM(const TArray<uint8>& PCMData, int32 SampleRate, int16 NumChannels);
-
 	/** Broadcast success on the game thread and clean up. */
 	void BroadcastSuccess(const FString& WavPath);
 

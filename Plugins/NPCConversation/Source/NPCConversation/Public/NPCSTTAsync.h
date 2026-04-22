@@ -68,9 +68,6 @@ private:
 	/** WAV bytes stored before the Whisper request so RunSystemSTT can use them on failure. */
 	TArray<uint8> PendingWavData;
 
-	/** Convert float PCM samples ([-1,1]) to a 16-bit mono WAV byte array. */
-	static TArray<uint8> BuildWavFromFloatSamples(const TArray<float>& Samples, int32 SampleRate, int32 NumChannels);
-
 	void BroadcastSuccess(const FString& Text);
 	void BroadcastFailure();
 };
