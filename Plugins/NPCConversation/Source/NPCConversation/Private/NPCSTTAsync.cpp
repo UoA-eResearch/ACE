@@ -17,6 +17,10 @@
 #include "NPCConversationModule.h"
 #include "NPCConversationSettings.h"
 
+// Standalone C++ core — no UE dependency.
+#include "NPCWavEncoder.h"
+#include <vector>
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 UNPCSTTAsync* UNPCSTTAsync::AsyncRecordAndTranscribe(UObject* WorldContextObject,
@@ -94,27 +98,13 @@ void UNPCSTTAsync::Activate()
 			TEXT("STT: Captured %d samples at %d Hz (%d ch). Sending to Whisper."),
 			AllSamples.Num(), NativeSampleRate, NumChannels);
 
-		// Downmix to mono then encode as WAV.
-		TArray<float> MonoSamples;
-		if (NumChannels > 1)
-		{
-			MonoSamples.Reserve(AllSamples.Num() / NumChannels);
-			for (int32 s = 0; s < AllSamples.Num(); s += NumChannels)
-			{
-				float Sum = 0.0f;
-				for (int32 c = 0; c < NumChannels; ++c)
-				{
-					Sum += AllSamples[s + c];
-				}
-				MonoSamples.Add(Sum / static_cast<float>(NumChannels));
-			}
-		}
-		else
-		{
-			MonoSamples = MoveTemp(AllSamples);
-		}
+		// Downmix to mono then encode as WAV using the standalone Core library.
+		const std::vector<float> AllStd(AllSamples.GetData(), AllSamples.GetData() + AllSamples.Num());
+		const std::vector<float> MonoStd = NPCConversationCore::DownmixToMono(AllStd, NumChannels);
+		const std::vector<uint8_t> WavStd = NPCConversationCore::BuildWavFromFloatSamples(MonoStd, NativeSampleRate);
 
-		TArray<uint8> WavData = BuildWavFromFloatSamples(MonoSamples, NativeSampleRate, 1);
+		TArray<uint8> WavData;
+		WavData.Append(reinterpret_cast<const uint8*>(WavStd.data()), static_cast<int32>(WavStd.size()));
 
 		// Decide which provider to use (read settings here; game-thread access happens below).
 		const UNPCConversationSettings* Cfg = GetDefault<UNPCConversationSettings>();
@@ -319,48 +309,6 @@ void UNPCSTTAsync::RunSystemSTT()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-TArray<uint8> UNPCSTTAsync::BuildWavFromFloatSamples(
-	const TArray<float>& Samples, int32 SampleRate, int32 NumChannels)
-{
-	// Convert float [-1, 1] → int16
-	TArray<int16> PCM;
-	PCM.Reserve(Samples.Num());
-	for (float S : Samples)
-	{
-		PCM.Add(static_cast<int16>(FMath::Clamp(S, -1.0f, 1.0f) * 32767.0f));
-	}
-
-	const int32 PCMBytes    = PCM.Num() * sizeof(int16);
-	const int16 BitsPerSample   = 16;
-	const int32 ByteRate    = SampleRate * NumChannels * (BitsPerSample / 8);
-	const int16 BlockAlign  = static_cast<int16>(NumChannels * (BitsPerSample / 8));
-	const int32 ChunkSize   = 36 + PCMBytes;
-
-	TArray<uint8> Wav;
-	Wav.Reserve(44 + PCMBytes);
-
-	auto Append4CC  = [&](const char* s) { Wav.Append(reinterpret_cast<const uint8*>(s), 4); };
-	auto AppendI16  = [&](int16 v)       { Wav.Append(reinterpret_cast<const uint8*>(&v), 2); };
-	auto AppendI32  = [&](int32 v)       { Wav.Append(reinterpret_cast<const uint8*>(&v), 4); };
-
-	Append4CC("RIFF");
-	AppendI32(ChunkSize);
-	Append4CC("WAVE");
-	Append4CC("fmt ");
-	AppendI32(16);                          // fmt chunk size
-	AppendI16(1);                           // PCM format
-	AppendI16(static_cast<int16>(NumChannels));
-	AppendI32(SampleRate);
-	AppendI32(ByteRate);
-	AppendI16(BlockAlign);
-	AppendI16(BitsPerSample);
-	Append4CC("data");
-	AppendI32(PCMBytes);
-	Wav.Append(reinterpret_cast<const uint8*>(PCM.GetData()), PCMBytes);
-
-	return Wav;
-}
 
 void UNPCSTTAsync::BroadcastSuccess(const FString& Text)
 {

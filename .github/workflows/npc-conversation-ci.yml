@@ -1,0 +1,215 @@
+name: NPCConversation Plugin CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'Plugins/NPCConversation/**'
+      - '.github/workflows/npc-conversation-ci.yml'
+  pull_request:
+    paths:
+      - 'Plugins/NPCConversation/**'
+      - '.github/workflows/npc-conversation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Validate plugin structure ────────────────────────────────────────────
+  validate-plugin:
+    name: Validate Plugin Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin descriptor JSON
+        run: |
+          python3 -m json.tool Plugins/NPCConversation/NPCConversation.uplugin > /dev/null
+          echo "✅ NPCConversation.uplugin is valid JSON"
+
+      - name: Check required source files exist
+        run: |
+          REQUIRED=(
+            Plugins/NPCConversation/Core/NPCWavEncoder.h
+            Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp
+            Plugins/NPCConversation/Source/NPCConversation/Private/NPCSTTAsync.cpp
+            Plugins/NPCConversation/Source/NPCConversation/Private/NPCLLMAsync.cpp
+            Plugins/NPCConversation/Source/NPCConversation/Private/NPCTTSAsync.cpp
+            Plugins/NPCConversation/Source/NPCConversation/Public/NPCSTTAsync.h
+            Plugins/NPCConversation/Source/NPCConversation/Public/NPCLLMAsync.h
+            Plugins/NPCConversation/Source/NPCConversation/Public/NPCTTSAsync.h
+            Plugins/NPCConversation/Source/NPCConversation/Public/NPCConversationSettings.h
+            Plugins/NPCConversation/Source/NPCConversationTests/Private/NPCConversationTests.cpp
+            Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp
+            Plugins/NPCConversation/Tests/UBTStub.cs
+          )
+          for f in "${REQUIRED[@]}"; do
+            [ -f "$f" ] || { echo "❌ Missing: $f"; exit 1; }
+          done
+          echo "✅ All required files present"
+
+      - name: Check #pragma once in all headers
+        run: |
+          MISSING=0
+          while IFS= read -r h; do
+            grep -q "#pragma once" "$h" || { echo "  ⚠️  Missing #pragma once: $h"; MISSING=$((MISSING+1)); }
+          done < <(find Plugins/NPCConversation/Source Plugins/NPCConversation/Core -name "*.h")
+          [ "$MISSING" -eq 0 ] && echo "✅ All headers have #pragma once"
+
+      - name: Verify HTTP typedef usage
+        run: |
+          # FHttpRequestPtr and FHttpResponsePtr are TSharedPtr typedefs — not
+          # forward-declarable with 'class'.  Flexible whitespace in the pattern
+          # catches both 'class FHttpRequestPtr' and 'class  FHttpResponsePtr'.
+          if grep -Er "class[[:space:]]+FHttp(Request|Response)Ptr" \
+               Plugins/NPCConversation/Source --include="*.h"; then
+            echo "❌ Found incorrect HTTP typedef forward declarations"
+            exit 1
+          fi
+          echo "✅ HTTP type declarations are correct"
+
+  # ── 2. Build and run standalone C++ core tests ──────────────────────────────
+  build-and-test-core:
+    name: Build and Test Standalone C++ Core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install g++
+        run: sudo apt-get install -y g++
+
+      - name: Build and run core tests
+        # NPCWavEncoder.cpp has no UE dependencies and compiles with plain g++.
+        # The tests run immediately after compilation — no UE installation needed.
+        run: |
+          g++ -std=c++17 -Wall -Wextra \
+              -I Plugins/NPCConversation/Core \
+              Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp \
+              Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp \
+              -o /tmp/npc_core_tests
+          /tmp/npc_core_tests
+
+  # ── 3. Syntax-check Build.cs files (C# / dotnet) ────────────────────────────
+  build-cs-check:
+    name: Build.cs Syntax Check (dotnet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Compile Build.cs files with UBT stubs
+        # Tests/UBTStub.cs provides the minimal UnrealBuildTool namespace so
+        # the Build.cs files can be compiled without a full UE installation.
+        run: |
+          WORKDIR=$(mktemp -d)
+          cat > "$WORKDIR/BuildCheck.csproj" << 'XML'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>disable</Nullable>
+              <ImplicitUsings>disable</ImplicitUsings>
+            </PropertyGroup>
+          </Project>
+          XML
+          cp Plugins/NPCConversation/Tests/UBTStub.cs \
+             Plugins/NPCConversation/Source/NPCConversation/NPCConversation.Build.cs \
+             Plugins/NPCConversation/Source/NPCConversationTests/NPCConversationTests.Build.cs \
+             "$WORKDIR/"
+          dotnet build "$WORKDIR/BuildCheck.csproj" --nologo -v minimal
+          echo "✅ Build.cs syntax check passed"
+          rm -rf "$WORKDIR"
+
+  # ── 4. Syntax-check UE plugin headers (g++ with stub headers) ───────────────
+  cpp-syntax-check:
+    name: C++ Header Syntax Check (gcc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install g++
+        run: sudo apt-get install -y g++
+
+      - name: Create stub .generated.h files
+        # UHT normally generates these; empty stubs let the headers parse.
+        run: |
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          for name in NPCSTTAsync NPCLLMAsync NPCTTSAsync NPCConversationSettings; do
+            echo "#pragma once" > "$PUB/${name}.generated.h"
+          done
+
+      - name: Syntax-check public headers
+        # Tests/UEStubs/ contains minimal UE header stubs (no UE installation needed).
+        run: |
+          STUBS=Plugins/NPCConversation/Tests/UEStubs
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          CORE=Plugins/NPCConversation/Core
+          FAILED=0
+          for header in "$PUB"/*.h; do
+            [[ "$header" == *.generated.h ]] && continue
+            if g++ -std=c++17 -fsyntax-only -w \
+                   -I"$STUBS" -I"$PUB" -I"$CORE" "$header" 2>&1; then
+              echo "  ✅ $header"
+            else
+              echo "  ❌ $header"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+          [ "$FAILED" -gt 0 ] && { echo "::error::$FAILED header(s) failed"; exit 1; }
+          echo "✅ All public headers passed syntax check"
+
+      - name: Syntax-check test file
+        # Tests that require UE factory bodies will warn but not fail the job.
+        run: |
+          STUBS=Plugins/NPCConversation/Tests/UEStubs
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          TEST=Plugins/NPCConversation/Source/NPCConversationTests/Private
+          if g++ -std=c++17 -fsyntax-only -w \
+                 -I"$STUBS" -I"$PUB" \
+                 "$TEST/NPCConversationTests.cpp" 2>&1; then
+            echo "✅ Test file syntax check passed"
+          else
+            echo "::warning::Test file syntax incomplete without a full UE5 SDK."
+            echo "Use a self-hosted runner with UE5.6 for a complete build + test run."
+          fi
+
+      - name: Cleanup stub generated headers
+        if: always()
+        run: |
+          PUB=Plugins/NPCConversation/Source/NPCConversation/Public
+          for name in NPCSTTAsync NPCLLMAsync NPCTTSAsync NPCConversationSettings; do
+            rm -f "$PUB/${name}.generated.h"
+          done
+
+  # ── 5. Code quality ──────────────────────────────────────────────────────────
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan for TODO/FIXME comments
+        run: |
+          TODOS=$(grep -r "TODO\|FIXME" Plugins/NPCConversation/Source \
+                    Plugins/NPCConversation/Core \
+                    --include="*.cpp" --include="*.h" || true)
+          [ -n "$TODOS" ] && echo "Found TODO/FIXME comments:" && echo "$TODOS" || \
+            echo "No TODO/FIXME comments found"
+
+      - name: Check file encoding and line endings
+        run: |
+          find Plugins/NPCConversation/Source Plugins/NPCConversation/Core \
+               Plugins/NPCConversation/Tests \
+               -name "*.cpp" -o -name "*.h" -o -name "*.cs" | \
+            xargs file | grep -i "with BOM" && \
+            echo "⚠️  Found files with UTF-8 BOM" || echo "✅ No BOM issues"
+          find Plugins/NPCConversation/Source Plugins/NPCConversation/Core \
+               Plugins/NPCConversation/Tests \
+               -name "*.cpp" -o -name "*.h" -o -name "*.cs" | \
+            xargs file | grep CRLF && \
+            echo "ℹ️  Found CRLF line endings (Windows style)" || \
+            echo "✅ All files use LF line endings"

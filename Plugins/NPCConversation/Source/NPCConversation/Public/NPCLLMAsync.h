@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Interfaces/IHttpRequest.h"
 #include "NPCLLMAsync.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FNPCLLMDelegate, FString, ResponseText, bool, bSuccess);
@@ -55,5 +56,5 @@ public:
 	virtual void Activate() override;
 
 private:
-	void OnHttpResponse(class FHttpRequestPtr Request, class FHttpResponsePtr Response, bool bWasSuccessful);
+	void OnHttpResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 };

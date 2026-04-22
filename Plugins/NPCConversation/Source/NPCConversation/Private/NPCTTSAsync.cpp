@@ -16,6 +16,10 @@
 #include "NPCConversationModule.h"
 #include "NPCConversationSettings.h"
 
+// Standalone C++ core — no UE dependency.
+#include "NPCWavEncoder.h"
+#include <vector>
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 UNPCTTSAsync* UNPCTTSAsync::AsyncSpeakText(UObject* WorldContextObject, const FString& Text)
@@ -115,7 +119,12 @@ void UNPCTTSAsync::OnElevenLabsResponse(FHttpRequestPtr /*Request*/, FHttpRespon
 		return;
 	}
 
-	TArray<uint8> WavData = BuildWavFromPCM(PCMBytes, 22050, 1);
+	TArray<uint8> WavData;
+	{
+		const std::vector<uint8_t> PCMStd(PCMBytes.GetData(), PCMBytes.GetData() + PCMBytes.Num());
+		const std::vector<uint8_t> WavStd = NPCConversationCore::BuildWavFromPCM(PCMStd, 22050, 1);
+		WavData.Append(reinterpret_cast<const uint8*>(WavStd.data()), static_cast<int32>(WavStd.size()));
+	}
 
 	// Save to a temp file
 	const FString TempPath = FPaths::CreateTempFilename(
@@ -227,40 +236,6 @@ void UNPCTTSAsync::RunSystemTTS()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-TArray<uint8> UNPCTTSAsync::BuildWavFromPCM(const TArray<uint8>& PCMData, int32 SampleRate, int16 NumChannels)
-{
-	// RIFF/WAVE header for 16-bit PCM
-	const int32 PCMSize    = PCMData.Num();
-	const int16 BitsPerSample  = 16;
-	const int32 ByteRate   = SampleRate * NumChannels * (BitsPerSample / 8);
-	const int16 BlockAlign = NumChannels * (BitsPerSample / 8);
-	const int32 ChunkSize  = 36 + PCMSize; // file size minus 8
-
-	TArray<uint8> Wav;
-	Wav.Reserve(44 + PCMSize);
-
-	auto Append4CC  = [&](const char* s) { Wav.Append(reinterpret_cast<const uint8*>(s), 4); };
-	auto AppendI16  = [&](int16 v)       { Wav.Append(reinterpret_cast<const uint8*>(&v), 2); };
-	auto AppendI32  = [&](int32 v)       { Wav.Append(reinterpret_cast<const uint8*>(&v), 4); };
-
-	Append4CC("RIFF");
-	AppendI32(ChunkSize);
-	Append4CC("WAVE");
-	Append4CC("fmt ");
-	AppendI32(16);           // fmt chunk size
-	AppendI16(1);            // PCM format
-	AppendI16(NumChannels);
-	AppendI32(SampleRate);
-	AppendI32(ByteRate);
-	AppendI16(BlockAlign);
-	AppendI16(BitsPerSample);
-	Append4CC("data");
-	AppendI32(PCMSize);
-	Wav.Append(PCMData);
-
-	return Wav;
-}
 
 void UNPCTTSAsync::BroadcastSuccess(const FString& WavPath)
 {

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Interfaces/IHttpRequest.h"
 #include "NPCTTSAsync.generated.h"
 
 /**
@@ -61,15 +62,12 @@ public:
 private:
 	// ElevenLabs path
 	void TryElevenLabs();
-	void OnElevenLabsResponse(class FHttpRequestPtr Request, class FHttpResponsePtr Response, bool bWasSuccessful);
+	void OnElevenLabsResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
 	// System TTS fallback
 	void RunSystemTTS();
 
 	// Helpers
-	/** Wrap raw PCM (int16, little-endian) data in a RIFF/WAV container. */
-	static TArray<uint8> BuildWavFromPCM(const TArray<uint8>& PCMData, int32 SampleRate, int16 NumChannels);
-
 	/** Broadcast success on the game thread and clean up. */
 	void BroadcastSuccess(const FString& WavPath);
 
