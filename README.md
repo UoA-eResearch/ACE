@@ -1,5 +1,7 @@
 # NVIDIA ACE — Kairos Sample Project
 
+[![NPCConversation Plugin CI](https://github.com/UoA-eResearch/ACE/actions/workflows/npc-conversation-ci.yml/badge.svg)](https://github.com/UoA-eResearch/ACE/actions/workflows/npc-conversation-ci.yml)
+
 > **NPC Conversation** extension by UoA eResearch adds Speech-to-Text (STT), Large Language Model
 > (LLM) inference, and Text-to-Speech (TTS) so players can hold real-time voice conversations with
 > MetaHuman NPCs.
