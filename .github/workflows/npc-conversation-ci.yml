@@ -85,7 +85,7 @@ jobs:
         # NPCWavEncoder.cpp has no UE dependencies and compiles with plain g++.
         # The tests run immediately after compilation — no UE installation needed.
         run: |
-          g++ -std=c++17 -Wall -Wextra -Wno-comment \
+          g++ -std=c++17 -Wall -Wextra \
               -I Plugins/NPCConversation/Core \
               Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp \
               Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp \

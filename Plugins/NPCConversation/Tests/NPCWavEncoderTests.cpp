@@ -1,12 +1,12 @@
 // Copyright UoA eResearch. MIT License.
 //
 // Standalone C++ tests for the NPCConversationCore WAV encoding library.
-// No Unreal Engine dependency — compile and run with a plain C++17 toolchain:
-//
-//   g++ -std=c++17 \
-//       -I Plugins/NPCConversation/Core \
-//       Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp \
-//       Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp \
+// No Unreal Engine dependency — compile and run with a plain C++17 toolchain.
+// Build command (run from repo root):
+//   g++ -std=c++17
+//       -I Plugins/NPCConversation/Core
+//       Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp
+//       Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp
 //       -o /tmp/npc_core_tests && /tmp/npc_core_tests
 
 #include "NPCWavEncoder.h"
@@ -83,12 +83,12 @@ static void TestFloatToPCMClamping()
     const std::vector<float> samples = {2.0f, -2.0f, 1.0f, -1.0f, 0.0f};
     const auto wav = NPCConversationCore::BuildWavFromFloatSamples(samples, 16000);
 
-    const int16_t* pcm = reinterpret_cast<const int16_t*>(&wav[44]);
-    assert(pcm[0] == 32767  && "2.0f should clamp to max int16");
-    assert(pcm[1] == -32767 && "-2.0f should clamp to min int16");
-    assert(pcm[2] == 32767  && "1.0f should map to max int16");
-    assert(pcm[3] == -32767 && "-1.0f should map to min int16");
-    assert(pcm[4] == 0      && "0.0f should map to 0");
+    // Read PCM samples using the safe byte-level helper to avoid aliasing UB.
+    assert(readI16LE(&wav[44 + 0*2]) == 32767  && "2.0f should clamp to max int16");
+    assert(readI16LE(&wav[44 + 1*2]) == -32767 && "-2.0f should clamp to min int16");
+    assert(readI16LE(&wav[44 + 2*2]) == 32767  && "1.0f should map to max int16");
+    assert(readI16LE(&wav[44 + 3*2]) == -32767 && "-1.0f should map to min int16");
+    assert(readI16LE(&wav[44 + 4*2]) == 0      && "0.0f should map to 0");
 
     std::cout << "  [PASS] TestFloatToPCMClamping\n";
 }

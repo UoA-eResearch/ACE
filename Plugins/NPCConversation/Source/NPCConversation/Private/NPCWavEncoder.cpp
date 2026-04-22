@@ -4,9 +4,10 @@
 // Core/NPCWavEncoder.h.
 //
 // This file intentionally contains NO Unreal Engine headers or types so that
-// it can be compiled and tested in isolation:
-//   g++ -std=c++17 -I Plugins/NPCConversation/Core \
-//       Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp \
+// it can be compiled and tested in isolation.
+// Build command (run from repo root):
+//   g++ -std=c++17 -I Plugins/NPCConversation/Core
+//       Plugins/NPCConversation/Source/NPCConversation/Private/NPCWavEncoder.cpp
 //       Plugins/NPCConversation/Tests/NPCWavEncoderTests.cpp
 
 #include "NPCWavEncoder.h"
