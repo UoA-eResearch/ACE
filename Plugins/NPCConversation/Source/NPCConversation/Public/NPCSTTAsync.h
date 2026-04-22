@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Interfaces/IHttpRequest.h"
 #include "NPCSTTAsync.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FNPCSTTDelegate, FString, TranscribedText, bool, bSuccess);
@@ -59,7 +60,7 @@ public:
 
 private:
 	void SendToWhisper(const TArray<uint8>& WavData);
-	void OnWhisperResponse(class FHttpRequestPtr Request, class FHttpResponsePtr Response, bool bWasSuccessful);
+	void OnWhisperResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
 	/** Platform speech recognition fallback (Windows: PowerShell + System.Speech.Recognition). */
 	void RunSystemSTT();

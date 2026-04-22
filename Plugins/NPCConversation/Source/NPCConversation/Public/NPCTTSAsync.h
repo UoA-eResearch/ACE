@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Interfaces/IHttpRequest.h"
 #include "NPCTTSAsync.generated.h"
 
 /**
@@ -61,7 +62,7 @@ public:
 private:
 	// ElevenLabs path
 	void TryElevenLabs();
-	void OnElevenLabsResponse(class FHttpRequestPtr Request, class FHttpResponsePtr Response, bool bWasSuccessful);
+	void OnElevenLabsResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
 	// System TTS fallback
 	void RunSystemTTS();
