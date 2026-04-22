@@ -1,0 +1,174 @@
+name: NPCConversation Plugin CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'Plugins/NPCConversation/**'
+  pull_request:
+    paths:
+      - 'Plugins/NPCConversation/**'
+  workflow_dispatch:
+
+jobs:
+  validate-plugin:
+    name: Validate Plugin Structure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate plugin descriptor
+        run: |
+          echo "Validating NPCConversation.uplugin..."
+          if [ ! -f "Plugins/NPCConversation/NPCConversation.uplugin" ]; then
+            echo "Error: Plugin descriptor not found"
+            exit 1
+          fi
+
+          # Validate JSON syntax
+          if ! python3 -m json.tool Plugins/NPCConversation/NPCConversation.uplugin > /dev/null 2>&1; then
+            echo "Error: Invalid JSON in plugin descriptor"
+            exit 1
+          fi
+
+          echo "Plugin descriptor is valid"
+
+      - name: Validate Build.cs files
+        run: |
+          echo "Checking for required Build.cs files..."
+
+          if [ ! -f "Plugins/NPCConversation/Source/NPCConversation/NPCConversation.Build.cs" ]; then
+            echo "Error: NPCConversation.Build.cs not found"
+            exit 1
+          fi
+
+          if [ ! -f "Plugins/NPCConversation/Source/NPCConversationTests/NPCConversationTests.Build.cs" ]; then
+            echo "Error: NPCConversationTests.Build.cs not found"
+            exit 1
+          fi
+
+          echo "All Build.cs files found"
+
+      - name: Check source files
+        run: |
+          echo "Checking for required source files..."
+
+          REQUIRED_FILES=(
+            "Plugins/NPCConversation/Source/NPCConversation/Private/NPCSTTAsync.cpp"
+            "Plugins/NPCConversation/Source/NPCConversation/Private/NPCLLMAsync.cpp"
+            "Plugins/NPCConversation/Source/NPCConversation/Private/NPCTTSAsync.cpp"
+            "Plugins/NPCConversation/Source/NPCConversation/Public/NPCSTTAsync.h"
+            "Plugins/NPCConversation/Source/NPCConversation/Public/NPCLLMAsync.h"
+            "Plugins/NPCConversation/Source/NPCConversation/Public/NPCTTSAsync.h"
+            "Plugins/NPCConversation/Source/NPCConversation/Public/NPCConversationSettings.h"
+            "Plugins/NPCConversation/Source/NPCConversationTests/Private/NPCConversationTests.cpp"
+          )
+
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Error: Required file not found: $file"
+              exit 1
+            fi
+          done
+
+          echo "All required source files present"
+
+      - name: Check for header include guards
+        run: |
+          echo "Checking header files for proper pragma once..."
+
+          HEADERS=$(find Plugins/NPCConversation/Source -name "*.h")
+
+          for header in $HEADERS; do
+            if ! grep -q "#pragma once" "$header"; then
+              echo "Warning: $header missing #pragma once"
+            fi
+          done
+
+          echo "Header guard check complete"
+
+      - name: Verify HTTP types usage
+        run: |
+          echo "Checking for proper HTTP type declarations..."
+
+          # Check that headers don't use 'class FHttpRequestPtr' (should just be FHttpRequestPtr)
+          if grep -r "class FHttpRequestPtr" Plugins/NPCConversation/Source --include="*.h"; then
+            echo "Error: Found incorrect 'class FHttpRequestPtr' forward declarations"
+            echo "FHttpRequestPtr is a typedef and should not be forward-declared with 'class'"
+            exit 1
+          fi
+
+          echo "HTTP type declarations are correct"
+
+  # Note: Actual UE5 build would require:
+  # - Unreal Engine 5.6 installation
+  # - UnrealBuildTool
+  # - Platform-specific build tools (Visual Studio on Windows, Xcode on macOS)
+  #
+  # For a full build workflow, consider using:
+  # - Self-hosted runners with UE5 pre-installed
+  # - Docker containers with UE5
+  # - Epic Games' official UE build actions (if available)
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "Scanning for TODO and FIXME comments..."
+
+          TODOS=$(grep -r "TODO\|FIXME" Plugins/NPCConversation/Source --include="*.cpp" --include="*.h" || true)
+
+          if [ -n "$TODOS" ]; then
+            echo "Found TODO/FIXME comments:"
+            echo "$TODOS"
+          else
+            echo "No TODO/FIXME comments found"
+          fi
+
+      - name: Check file encoding
+        run: |
+          echo "Checking for BOM and encoding issues..."
+
+          # Check for UTF-8 BOM which can cause issues with UE5
+          if find Plugins/NPCConversation/Source -name "*.cpp" -o -name "*.h" | xargs file | grep -i "with BOM"; then
+            echo "Warning: Found files with UTF-8 BOM, which may cause issues"
+          else
+            echo "No BOM issues found"
+          fi
+
+      - name: Check line endings
+        run: |
+          echo "Checking for inconsistent line endings..."
+
+          # Check for CRLF line endings (should be LF on Linux)
+          if find Plugins/NPCConversation/Source -name "*.cpp" -o -name "*.h" | xargs file | grep CRLF; then
+            echo "Note: Found CRLF line endings (Windows style)"
+          else
+            echo "All files use LF line endings (Unix style)"
+          fi
+
+      - name: Summary
+        run: |
+          echo "==================================="
+          echo "Plugin validation completed!"
+          echo "==================================="
+          echo ""
+          echo "To add full build and test support:"
+          echo "1. Set up a self-hosted runner with UE5.6"
+          echo "2. Add UnrealBuildTool commands to build the plugin"
+          echo "3. Run Unreal's automation tests"
+          echo ""
+          echo "For now, this workflow validates:"
+          echo "- Plugin structure and descriptor"
+          echo "- Required source files presence"
+          echo "- Code quality basics"

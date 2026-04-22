@@ -14,6 +14,11 @@
 			"Name": "NPCConversation",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "NPCConversationTests",
+			"Type": "EditorNoCommandlet",
+			"LoadingPhase": "Default"
 		}
 	]
 }
